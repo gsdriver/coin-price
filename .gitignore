@@ -22,3 +22,7 @@ yarn-error.log*
 secrets.json
 /.serverless/
 deploy.sh
+
+# files
+myprices.csv
+mycoins.csv
