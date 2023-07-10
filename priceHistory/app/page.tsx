@@ -3,12 +3,9 @@
 import { useEffect, useState } from "react";
 import fetch from "node-fetch";
 import querystring from "querystring";
-import { Chart as ChartJS, CategoryScale, LineElement, PointElement, LinearScale, Title } from "chart.js";
-import { Line } from "react-chartjs-2";
 import Image from "next/image";
-import { CoinIssue, CoinSeries, formatDate } from "@/utils";
-
-ChartJS.register(CategoryScale, LineElement, PointElement, LinearScale, Title);
+import { CoinIssue, CoinSeries } from "@/utils";
+import { PriceChart } from "@/components/PriceChart";
 
 const NOVARIETY = "No variety";
 const grades: number[] = [1, 2, 3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70];
@@ -127,47 +124,6 @@ export default function Home() {
     setPriceHistory(await getCoinHistory(selectedSeries!, selectedIssue!, selectedGrade!, v));
   };
 
-  const renderChart = () => {
-    if (!priceHistory) {
-      return null;
-    }
-
-    const result: { labels: string[], datasets: any[] } = {
-      labels: priceHistory.map((h) => formatDate(new Date(h.price_as_of))),
-      datasets: [{
-        label: `${selectedIssue} ${selectedSeries} Grade: ${selectedGrade}`,
-        borderColor: 'rgb(255, 99, 132)',
-        backgroundColor: 'rgba(255, 99, 132, 0.5)',
-        data: priceHistory.map((h) => h.price),
-      }],
-    };
-
-    const options = {
-      responsive: true,
-      plugins: {
-        legend: {
-          position: "top" as const,
-        },
-        title: {
-          display: true,
-          text: "Coin Price History",
-        },
-      },
-      tooltips: {
-        enbled: true,
-        callbacks: {
-          label: (item: any, data: any) => {
-            return `$${data.datasets[item.datasetIndex].data[item.index]}`;
-          },
-        },
-      },
-    };
-
-    return (
-      <Line options={options} data={result} />
-    );
-  };
-
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
       <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
@@ -184,7 +140,7 @@ export default function Home() {
             <label htmlFor="issue">Choose a coin issue:</label>
             <select name="issue" id="issue" value={selectedIssue} onChange={setIssue}>
               {issueList.map((issue) => (
-                <option key={issue.name} value={issue.name}>{issue.name}</option>
+                <option key={issue.name} value={issue.name} selected={issue.name === selectedIssue}>{issue.name}</option>
               ))}
             </select>
           </p>
@@ -212,7 +168,13 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        {renderChart()}
+        <PriceChart
+          priceHistory={priceHistory}
+          series={selectedSeries}
+          issue={selectedIssue}
+          variety={selectedVariety}
+          grade={selectedGrade}
+        />
       </div>
 
       <div className="mb-32 grid text-center lg:mb-0 lg:grid-cols-4 lg:text-left">
