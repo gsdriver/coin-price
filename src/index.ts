@@ -3,7 +3,7 @@ const config = require("dotenv").config();
 import * as logger from "./logger";
 import { lookupSeries } from "./match";
 import { priceCoin } from "./price";
-import { readCoins, writeCoinPrices } from "./utils";
+import { formatDate, getScrapedDates, loadPriceFiles, readCoins, writeCoinPrices } from "./utils";
 
 const formatPrice = (price: number): string => {
   const zeroPad = (d: number) => {
@@ -23,12 +23,12 @@ const priceOneCoin = async (
     variety?: string,
     value: string,
   },
-  as_of: Date | undefined): Promise<{ price: string, price_as_of: Date | undefined, explanation: string }> => {
+  as_of: Date[]): Promise<{ prices: {[s: string]: string}, explanation: string }> => {
   // Let's transform the grade - we will only take the numeric designation
   // and an indication of whether it is proof
   // That means we'll lose any "+" designation for now
-  let price: string | undefined;
-  let price_as_of: Date | undefined;
+  const prices: { [s: string]: string } = {};
+  let i: number;
   let explanation: string | undefined;
   let grade: number = parseInt(coin.grade.replace(/[^0-9]+/g, ""), 10);
   const proof: boolean = coin.grade.toLowerCase().indexOf("pr") > -1;
@@ -58,31 +58,32 @@ const priceOneCoin = async (
 
   if (series) {
     // Read price files
-    const date = (as_of ? new Date(as_of) : new Date());
-    const coinPrice = await priceCoin(series, coin.year, coin.variety, grade, date, detailValues);
-    if (coinPrice.price) {
-      price = formatPrice(coinPrice.price);
-      price_as_of = coinPrice.price_as_of;
+    for (i = 0; i < as_of.length; i++) {
+      const date = (as_of[i]);
+      const coinPrice = await priceCoin(series, coin.year, coin.variety, grade, date, detailValues);
+      if (coinPrice.price) {
+        prices[formatDate(coinPrice.price_as_of)] = formatPrice(coinPrice.price);
 
-      // If this was not an exact price, then let's note that in the explanation
-      if (coinPrice.price_below || coinPrice.price_above) {
-        const closeMatches: string[] = [];
-        if (coinPrice.price_below) {
-          closeMatches.push(`Grade ${coinPrice.price_below.grade} at ${formatPrice(coinPrice.price_below.price)}`);
+        // If this was not an exact price, then let's note that in the explanation
+        if (!explanation && (coinPrice.price_below || coinPrice.price_above)) {
+          const closeMatches: string[] = [];
+          if (coinPrice.price_below) {
+            closeMatches.push(`Grade ${coinPrice.price_below.grade} at ${formatPrice(coinPrice.price_below.price)}`);
+          }
+          if (coinPrice.price_above) {
+            closeMatches.push(`Grade ${coinPrice.price_above.grade} at ${formatPrice(coinPrice.price_above.price)}`);
+          }
+          explanation = `No exact price found - closest matches were ${closeMatches.join(" and ")}`;
         }
-        if (coinPrice.price_above) {
-          closeMatches.push(`Grade ${coinPrice.price_above.grade} at ${formatPrice(coinPrice.price_above.price)}`);
-        }
-        explanation = `No exact price found - closest matches were ${closeMatches.join(" and ")}`;
       }
-    }
 
-    if (coinPrice.errorCode) {
-      explanation = `${coinPrice.errorCode}. ${explanation || ""}`.trim();
+      if (!explanation && coinPrice.errorCode) {
+        explanation = `${coinPrice.errorCode}. ${explanation || ""}`.trim();
+      }
     }
   }
 
-  return { price: price || "", price_as_of, explanation: explanation || "" };
+  return { prices, explanation: explanation || "" };
 };
 
 exports.handler = async (event: any, context: any) => {
@@ -90,7 +91,23 @@ exports.handler = async (event: any, context: any) => {
   logger.info("received event", { event });
 
   const coins = await readCoins();
-  const pricedCoins: { year: string, value: string, grade: string, variety?: string, price: string, price_as_of: Date | undefined, explanation: string }[] = [];
+  const pricedCoins: { year: string, value: string, grade: string, variety?: string, prices: { [s: string]: string }, explanation: string }[] = [];
+  let as_of_dates: Date[];
+
+  if (!await loadPriceFiles(event)) {
+    logger.info("Couldn't load pricelists", { event });
+    return;
+  }
+
+  if (event?.start) {
+    // This means that we need to read a range of dates - first get a list of all potential dates
+    // Then filter to those that come after the start date
+    const s: Date = new Date(event.start);
+    const e: Date = event.end ? new Date(event.end) : new Date();
+    as_of_dates = await getScrapedDates();
+  } else {
+    as_of_dates = [event?.date ? new Date(event.date) : new Date()];
+  }
 
   let i: number;
   for (i = 0; i < coins.length; i++) {
@@ -104,7 +121,7 @@ exports.handler = async (event: any, context: any) => {
     };
     logger.info("Read coin", { coin });
 
-    const result: { price: string, price_as_of: Date | undefined, explanation: string } = await priceOneCoin(coin, event?.date);
+    const result: { prices: { [s: string]: string }, explanation: string } = await priceOneCoin(coin, as_of_dates);
     pricedCoins.push({ ...coin, ...result });
   }
 

@@ -22,13 +22,156 @@ export interface CoinSeries {
 
 const SERIESFILE = "serieslist.json";
 
-let seriesList: CoinSeries[] | undefined;
+let seriesList: { [s: string]: CoinSeries[] } | undefined;
+
+// This function must be called first, to initialize the seriesList structure
+export const loadPriceFiles = async(event: any): Promise<boolean> => {
+  // Loop thru to read in all keys
+  let keyList: string[] = [];
+  let step: number;
+
+  // If we've already loaded the list, the return
+  if (seriesList) {
+    return true;
+  }
+
+  try {
+    let data: any;
+
+    const client: any = new S3Client({
+      region: "us-west-2",
+    });
+
+    await (async function loop(firstRun, token): Promise<any> {
+      const params: any = { Bucket: process.env.S3_BUCKET };
+      if (firstRun || token) {
+        if (token) {
+          params.ContinuationToken = token;
+        }
+
+        const command = new ListObjectsV2Command(params);
+        data = await client.send(command);
+        keyList = keyList.concat(data.Contents.map((d: any) => d.Key));
+        if (data.NextContinuationToken) {
+          return loop(false, data.NextContinuationToken);
+        }
+      }
+    }(true, null));
+
+    // Ignore the series file
+    keyList = keyList.filter((key: string) => key !== SERIESFILE);
+  } catch (e) {
+    // There's an error - clear the keylist and try again later
+    logger.error((e as any)?.message, "Problem reading pricing files");
+    keyList = [];
+  }
+
+  // Get a list of the unique dates here
+  let dateKeys: string[] = [];
+  keyList.forEach((key: string) => {
+    const values = key.split("/");
+    if (dateKeys.indexOf(values[0]) === -1) {
+      dateKeys.push(values[0]);
+    }
+  });
+  dateKeys.sort((a, b) => (new Date(a).valueOf() - (new Date(b).valueOf())));
+
+  // Now, let's figure out which dates make sense to read in
+  if (event?.start) {
+    const start: Date = new Date(event.start);
+    const end: Date = event.end ? new Date(event.end) : new Date();
+
+    if (!event.step) {
+      // How many days between start and end?
+      const daysBetween = (end.valueOf() - start.valueOf()) / (24 * 60 * 60 * 1000);
+      if (daysBetween < 60) {
+        step = 7;
+      } else if (daysBetween < 180) {
+        step = 30;
+      } else if (daysBetween < 365) {
+        step = 90;
+      } else if (daysBetween < 3 * 365) {
+        step = 365;
+      }
+    } else {
+      step = event.step;
+    }
+
+    // Filter the date list to those between the start and end
+    dateKeys = dateKeys.filter((key: string) => ((new Date(key) >= start) && (new Date(key) <= end)));
+  } else {
+    // Just a single date - so let's find the right date to read
+    const age_of_date: Date = event?.date ? new Date(event.date) : new Date();
+    let bestDate: string = dateKeys[0];
+    dateKeys.forEach((key: string) => {
+      if (new Date(bestDate) < age_of_date) {
+        bestDate = key;
+      }
+    });
+
+    dateKeys = [bestDate];
+    step = 1;
+  }
+
+  // Look at the step to figure out which ones we want to load
+  // Step is the number of days for us to place between each entry
+  let target: number = 0;
+  dateKeys = dateKeys.filter((key: string) => {
+    let result: boolean = false;
+    const val: number = (new Date(key)).valueOf();
+    if ((val - target) >= (step * 24 * 60 * 60 * 1000)) {
+      target = target ? target + (step * 24 * 60 * 60 * 1000) : val;
+      result = true;
+    }
+
+    return result;
+  });
+  keyList = keyList.filter((key: string) => {
+    const values = key.split("/");
+    return dateKeys.indexOf(values[0]) > -1;
+  });
+
+  // OK, now we read in each of these files
+  if (keyList.length) {
+    let iKey: number;
+
+    seriesList = {};
+    for (iKey = 0; iKey < keyList.length; iKey++) {
+      const dataStr: string = await readFromS3(keyList[iKey]);
+      const dateStr: string = formatDate(new Date(keyList[iKey].split("/")[0]));
+      const name: string = (keyList[iKey].split("/")[1]).split(".csv")[0];
+      const coinSeries: CoinSeries = { name, issues: [], price_as_of: new Date(keyList[iKey].split("/")[0]) };
+
+      // First line is year, variety, and grade values
+      const lines = dataStr.split("\n");
+      const header = lines[0].split(",");
+      let l: number;
+      for (l = 1; l < lines.length; l++) {
+        const issue: string[] = lines[l].split(",");
+        if (issue.length >= header.length) {
+          const coinIssue: CoinIssue = { name: issue[0], variety: issue[1], prices: [] };
+          let p: number;
+          for (p = 2; p < issue.length; p++) {
+            coinIssue.prices.push({ grade: parseInt(header[p], 10), price: parseInt(issue[p], 10) });
+          }
+          coinSeries.issues.push(coinIssue);
+        }
+      }
+
+      // Add this in
+      seriesList[dateStr] = seriesList[dateStr] || [];
+      seriesList[dateStr].push(coinSeries);
+    }
+  }
+
+  return !!seriesList;
+};
 
 const zeroPad = (d: number) => {
   return (`0${d}`).slice(-2);
 };
 
-const formatDate = (d: Date | undefined): string => {
+export const formatDate = (d: Date | undefined): string => {
   if (!d) {
     return "";
   }
@@ -65,98 +208,44 @@ const readFromS3 = async (key: string): Promise<string> => {
   return value;
 };
 
+export const getScrapedDates = async (): Promise<Date[]> => {
+  // If it's cached, just return that cached file
+  if (!await loadPriceFiles(undefined)) {
+    return [];
+  }
+
+  return Object.keys(seriesList!).map((d) => new Date(d)).sort((a, b) => a.valueOf() - b.valueOf());
+};
+
 export const getPriceFiles = async (date: Date): Promise<CoinSeries[]> => {
   // If it's cached, just return that cached file
-  if (seriesList) {
-    return seriesList;
+  const dateStr: string = formatDate(date);
+  if (!await loadPriceFiles(undefined)) {
+    return [];
   }
 
-  // Loop thru to read in all keys
-  let keyList: string[] = [];
-  const coinKeys: string[] = [];
-  try {
-    let data: any;
-
-    const client: any = new S3Client({
-      region: "us-west-2",
-    });
-
-    await (async function loop(firstRun, token): Promise<any> {
-      const params: any = { Bucket: process.env.S3_BUCKET };
-      if (firstRun || token) {
-        if (token) {
-          params.ContinuationToken = token;
-        }
-
-        const command = new ListObjectsV2Command(params);
-        data = await client.send(command);
-        keyList = keyList.concat(data.Contents.map((d: any) => d.Key));
-        if (data.NextContinuationToken) {
-          return loop(false, data.NextContinuationToken);
-        }
-      }
-    }(true, null));
-
-    // Only keep those before the given date
-    keyList = keyList
-      .filter((key: string) => {
-        if (key === SERIESFILE) {
-          return false;
-        }
-
-        // Is it before the given date?
-        const values = key.split("/");
-        const d = new Date(values[0]);
-        return d <= date;
-      });
-
-    // And keep the most recent of each coin file that passes that filter
-    keyList.forEach((k: string) => {
-      const coin: string = k.split("/")[1].toLowerCase();
-      const j: number = coinKeys.findIndex((x: string) => x.split("/")[1].toLowerCase() === coin);
-      if (j > -1) {
-        // Already in there
-        if (new Date(k.split("/")[0]) > new Date(coinKeys[j].split("/")[0])) {
-          coinKeys[j] = k;
-        }
-      } else {
-        // Not there - add it
-        coinKeys.push(k);
-      }
-    });
-  } catch (e) {
-    // There's an error - clear the keylist and try again later
-    logger.error((e as any)?.message, "Problem reading pricing files");
-    keyList = [];
-  }
-
-  // OK, now we read in each of these files
-  let iKey: number;
-  seriesList = [];
-  for (iKey = 0; iKey < coinKeys.length; iKey++) {
-    const dataStr: string = await readFromS3(coinKeys[iKey]);
-    const name: string = (coinKeys[iKey].split("/")[1]).split(".csv")[0];
-    const coinSeries: CoinSeries = { name, issues: [], price_as_of: new Date(coinKeys[iKey].split("/")[0]) };
-
-    // First line is year, variety, and grade values
-    const lines = dataStr.split("\n");
-    const header = lines[0].split(",");
-    let l: number;
-    for (l = 1; l < lines.length; l++) {
-      const issue: string[] = lines[l].split(",");
-      if (issue.length >= header.length) {
-        const coinIssue: CoinIssue = { name: issue[0], variety: issue[1], prices: [] };
-        let p: number;
-        for (p = 2; p < issue.length; p++) {
-          coinIssue.prices.push({ grade: parseInt(header[p], 10), price: parseInt(issue[p], 10) });
-        }
-        coinSeries.issues.push(coinIssue);
-      }
+  // OK, look for the closest value before this date
+  let bestDate: string | undefined;
+  Object.keys(seriesList!).forEach((key) => {
+    const d: Date = new Date(key);
+    if (d < date) {
+      bestDate = (!bestDate || (d > new Date(bestDate))) ? key : bestDate;
     }
-    seriesList.push(coinSeries);
+  });
+  if (!bestDate) {
+    // Just pick the earliest available
+    Object.keys(seriesList!).forEach((key) => {
+      const d: Date = new Date(key);
+      bestDate = (!bestDate || (d < new Date(bestDate))) ? key : bestDate;
+    });
   }
 
-  return seriesList;
+  if (!bestDate) {
+    logger.info("Couldn't find good date to use", { date });
+    return [];
+  }
+
+  return seriesList![bestDate] || [];
 };
 
 export const readCoins = async (): Promise<{ year: string, value: string, details?: string, grade: string, variety?: string }[]> => {
@@ -183,22 +272,42 @@ export const readCoins = async (): Promise<{ year: string, value: string, detail
   return coins;
 };
 
-export const writeCoinPrices = async (coins: { year: string, value: string, details?: string, grade: string, variety?: string, price: string, price_as_of: Date | undefined, explanation: string }[]): Promise<boolean> => {
+export const writeCoinPrices = async (coins: { year: string, value: string, details?: string, grade: string, variety?: string, prices: { [s: string]: string }, explanation: string }[]): Promise<boolean> => {
   let success: boolean = false;
 
+  // Get the set of dates to use
+  const dates: string[] = [];
+  coins.forEach((coin) => {
+    Object.keys(coin.prices).forEach((price) => {
+      if (dates.indexOf(price) === -1) {
+        dates.push(price);
+      }
+    });
+  });
+  dates.sort((a, b) => (new Date(a)).valueOf() - (new Date(b)).valueOf());
+
   const records: string[][] = coins.map((c) => {
-    return [ c.year, c.value, c.details || "", c.grade, c.variety || "", c.price, formatDate(c.price_as_of), c.explanation ];
+    const record: string[] = [c.year, c.value, c.details || "", c.grade, c.variety || ""];
+    dates.forEach((date) => {
+      record.push(c.prices[date] || "");
+    });
+
+    record.push(c.explanation);
+    return record;
   });
 
   // Generate a CSV file
-  const header: string[] = ["Year", "Value", "Details", "Grade", "Variety", "Price", "As Of", "Notes"];
+  let header: string[] = ["Year", "Value", "Details", "Grade", "Variety"];
+  header = header.concat(dates);
+  header.push("Notes");
+
   const csvStringifier = createCsvStringifier({
     header: header.map((h: string) => ({ id: h, title: h })),
   });
 
   let i: number;
   const entries: {[s: string]: string}[] = [];
-  for (i = 1; i < records.length; i++) {
+  for (i = 0; i < records.length; i++) {
     const entry: {[s: string]: string} = {};
 
     records[i].forEach((item, j) => {
