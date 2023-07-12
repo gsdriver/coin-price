@@ -79,6 +79,7 @@ export default function Home() {
       setSelectedIssue(undefined);
       setSelectedVariety(undefined);
       setSelectedGrade(undefined);
+      setPriceHistory(undefined);
     };
 
     initialize();
@@ -89,6 +90,7 @@ export default function Home() {
     setSelectedIssue(undefined);
     setSelectedVariety(undefined);
     setSelectedGrade(undefined);
+    setPriceHistory(undefined);
 
     setIssueList(seriesList
       .find((series) => series.name === event.target.value)!.issues
@@ -99,6 +101,7 @@ export default function Home() {
   const setIssue = (event: any) => {
     setSelectedIssue(event.target.value);
     setSelectedGrade(undefined);
+    setPriceHistory(undefined);
 
     const varities = issueList
       .filter((issue) => issue.name === event.target.value)
@@ -112,10 +115,12 @@ export default function Home() {
   const setVariety = (event: any) => {
     setSelectedVariety(event.target.value);
     setSelectedGrade(undefined);
+    setPriceHistory(undefined);
   };
 
   const setGrade = (event: any) => {
     setSelectedGrade(event.target.value);
+    setPriceHistory(undefined);
   }
 
   const onClickButton = async () => {
@@ -145,7 +150,7 @@ export default function Home() {
             </select>
           </p>
         )}
-        {!!selectedIssue && (
+        {!!selectedIssue && (varietyList?.length > 1) && (
           <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
             <label htmlFor="variety">Choose a coin variety:</label>
             <select name="variety" id="variety" value={selectedVariety} onChange={setVariety}>
@@ -167,18 +172,18 @@ export default function Home() {
         )}
       </div>
 
-      <div className="w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <PriceChart
-          priceHistory={priceHistory}
-          series={selectedSeries}
-          issue={selectedIssue}
-          variety={selectedVariety}
-          grade={selectedGrade}
-        />
-      </div>
+      <PriceChart
+        priceHistory={priceHistory}
+        series={selectedSeries}
+        issue={selectedIssue}
+        variety={selectedVariety}
+        grade={selectedGrade}
+      />
 
       <div className="mb-32 grid text-center lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <button disabled={!selectedSeries || !selectedIssue || !selectedVariety || !selectedGrade} onClick={onClickButton}>
+        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full" 
+          disabled={!selectedSeries || !selectedIssue || !selectedVariety || !selectedGrade} 
+          onClick={onClickButton}>
           Get Price History
         </button>
       </div>

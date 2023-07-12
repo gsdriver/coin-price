@@ -92,6 +92,8 @@ export const PriceChart = (props: PriceChartProps) => {
   };
 
   return (
-    <Line options={options} data={priceData} />
+    <div className="w-full h-full max-w-5xl items-center justify-between lg:flex px-8 py-8 bg-white">
+      <Line options={options} data={priceData} />
+    </div>
   );
 };
