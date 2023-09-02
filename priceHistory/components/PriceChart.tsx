@@ -22,7 +22,6 @@ export const PriceChart = (props: PriceChartProps) => {
     if (props.priceHistory) {
       // Turn this into a history by month from the first date to the current date
       const d: Date = new Date(props.priceHistory[0].price_as_of);
-      d.setMonth(d.getMonth());
       d.setDate(1);
 
       const lastDate: Date = new Date();
@@ -33,10 +32,11 @@ export const PriceChart = (props: PriceChartProps) => {
       while (d < lastDate) {
         // Find the price as of this date
         let idx: number = props.priceHistory
-          .findIndex((h) => new Date(h.price_as_of).getTime() > d.getTime()) - 1;
+          .findIndex((h) => new Date(h.price_as_of).getTime() > d.getTime());
         if (idx < 0) {
-          idx = 0;
+          idx = props.priceHistory.length;
         }
+        idx = Math.max(0, idx - 1);
         data.push({ price_as_of: formatMonth(d), price: props.priceHistory[idx].price });
 
         // Go forward a month

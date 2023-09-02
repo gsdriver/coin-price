@@ -3,7 +3,7 @@ service: coin-prices
 provider:
   name: aws
   versionFunctions: false
-  runtime: nodejs12.x
+  runtime: nodejs14.x
   region: us-west-2
   stage: ${env:STAGE}
   environment:

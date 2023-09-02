@@ -97,8 +97,7 @@ const readRow = async (page: any, row: number): Promise<{ success: boolean, grad
         // Read in the year in the first column
         result.year = await page.evaluate(async (sel: any) => {
           return document.querySelector(sel)?.innerText;
-        }, `body > center > div > table > tbody > tr:nth-child(1) > td:nth-child(1) > table > tbody > tr > td:nth-child(2) > center > table:nth-child(3) > tbody > tr:nth-child(2) > td > table:nth-child(1) > tbody > tr:nth-child(${row}) > td:nth-child(${1}) > font > b > a > font`);
-
+        }, `body > center > div > table > tbody > tr:nth-child(1) > td:nth-child(1) > table > tbody > tr > td:nth-child(2) > center > table:nth-child(3) > tbody > tr:nth-child(2) > td > table:nth-child(1) > tbody > tr:nth-child(${row}) > td:nth-child(${1}) > font > b > a > font:nth-child(3)`);
         // Read in the prices
         result.prices = await readNumericRow(page, row, true);
       } else {
