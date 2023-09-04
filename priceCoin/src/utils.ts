@@ -198,7 +198,7 @@ export const writeCoinPrices = async (coins: { year: string, value: string, deta
 
   let i: number;
   const entries: {[s: string]: string}[] = [];
-  for (i = 1; i < records.length; i++) {
+  for (i = 0; i < records.length; i++) {
     const entry: {[s: string]: string} = {};
 
     records[i].forEach((item, j) => {

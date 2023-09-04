@@ -131,7 +131,7 @@ const coinSeries: { series: string, value?: string, proof?: boolean, start: stri
 
 export const lookupSeries = (year: string, value: string, proof: boolean): string[] | undefined => {
   // Just pull out the year, no mintmarks
-  const arr = year.match(/(\d*)([\s\S]*)/);
+  const arr = year.match(/([\s\S]*)(\d*)([\s\S]*)/);
   let y: number = 0;
   if (arr?.length && arr.length > 1) {
     y = parseInt(arr[1], 10);

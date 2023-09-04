@@ -4,6 +4,14 @@ const config = require("dotenv").config();
 import * as logger from "./logger";
 import { CoinIssue, CoinPrice, CoinSeries, getPriceFiles } from "./utils";
 
+// If missing mintmark, then put on "p" for Philadelphia
+const getMintMark = (str: string): string => {
+  const validMintMarks: string[] = ["p", "d", "s", "w", "c", "o", "cc"];
+  const match = validMintMarks.find((m) => (str.toLowerCase().trim().indexOf(m) > -1));
+
+  return match || "p";
+};
+
 const yearMatch = (year1: string, year2: string, detail: string | undefined): boolean => {
   // We need to split out year and mintmark
   // If missing mintmark, then put on "P" for Philadelphia
@@ -12,8 +20,8 @@ const yearMatch = (year1: string, year2: string, detail: string | undefined): bo
   let match = false;
 
   if (component1[0].trim() === component2[0].trim()) {
-    const mintmark1 = (component1.length > 1) ? component1[1].toLowerCase().trim() : "p";
-    const mintmark2 = (component2.length > 1) ? component2[1].toLowerCase().trim() : "p";
+    const mintmark1 = (component1.length > 1) ? getMintMark(component1[1]) : "p";
+    const mintmark2 = (component2.length > 1) ? getMintMark(component2[1]) : "p";
 
     match = (mintmark1 === mintmark2);
   }
@@ -40,10 +48,27 @@ export const priceCoin = async (series: string, year: string, variety: string | 
   } else {
     // OK, we have it - let's see if we can match the year
     price_as_of = priceList.price_as_of;
-    let issues = priceList.issues.filter((i: CoinIssue) => (yearMatch(i.name, year, undefined)));
-    if (!issues.length) {
+    let issues: CoinIssue[] = priceList.issues.filter((i: CoinIssue) => (yearMatch(i.name, year, undefined)));
+    if ((issues.length > 1) && details.length) {
+      // See if there's an exact match
+      const exactMatches: CoinIssue[] = [];
+
+      details.forEach((detail) => {
+        issues.forEach((i: CoinIssue) => {
+          const name: string = `${year} ${detail}`;
+          if (i.name.toLowerCase().trim() === name.toLowerCase().trim()) {
+            exactMatches.push(i);
+          }
+        });
+      });
+
+      if (exactMatches.length) {
+        issues = exactMatches;
+      }
+    } else if (!issues.length) {
       // Let's see if we can find a match using the details passed in
       // That might include qualifiers like RB or VDB
+      issues = [];
       details.forEach((detail) => {
         if (!issues.length) {
           issues = priceList.issues.filter((i: CoinIssue) => (yearMatch(i.name, year, detail)));
@@ -53,14 +78,20 @@ export const priceCoin = async (series: string, year: string, variety: string | 
     if (!issues.length) {
       errorCode = `Year ${year} not found in ${priceList.name}`;
     } else {
+      // If there is more than one issue that matches, we look at variety
       // Let's see if we can match variety - if not, we'll note and do our best
       let issue: CoinIssue | undefined;
-      if (variety) {
-        issue = issues.find((i: CoinIssue) => (i.variety?.toLowerCase() === variety));
+      if (issues.length > 1) {
+        if (variety) {
+          issue = issues.find((i: CoinIssue) => (i.variety?.toLowerCase() === variety));
+        } else {
+          issue = issues.find((i: CoinIssue) => !i.variety?.length);
+        }
       } else {
-        issue = issues.find((i: CoinIssue) => !i.variety?.length);
+        issue = issues[0];
       }
 
+      // Still don't have anything? Then we'll just use the first one
       if (!issue) {
         issue = issues[0];
         errorCode = `Can't find variety ${variety?.length ? variety : "no variety"}, using ${issue.variety?.length ? issue.variety : "no variety"} instead`;
