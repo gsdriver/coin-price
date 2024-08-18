@@ -9,6 +9,7 @@ provider:
   environment:
     COINURL: ${env:COINURL}
     S3_BUCKET: ${env:S3_BUCKET}
+    PROOFSETURL: ${env:PROOFSETURL}
 
 plugins:
   - serverless-offline

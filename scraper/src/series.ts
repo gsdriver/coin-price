@@ -180,6 +180,11 @@ export const getSeries = async (event: any): Promise<{ series: string, url: stri
     return [{ series: event.series, url: event.url }];
   }
 
+  // It might be that they don't want us to grade any series (e.g. just proofs)
+  if (event?.noSeries) {
+    return [];
+  }
+
   // Let's read the list from S3 -- if not present, try to generate and read
   let seriesText: string = await readFromS3();
   if (!seriesText?.length) {

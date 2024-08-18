@@ -127,6 +127,7 @@ const coinSeries: { series: string, value?: string, proof?: boolean, start: stri
     end: undefined
   },
   { series: "Signature Series", start: "1983" },
+  { series: "Proof Sets", value: "Proof Set", start: "1936", proof: true },
 ];
 
 export const lookupSeries = (year: string, value: string, proof: boolean): string[] | undefined => {

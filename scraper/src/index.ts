@@ -5,6 +5,7 @@ import { createObjectCsvStringifier as createCsvStringifier } from "csv-writer";
 
 import * as logger from "./logger";
 import { readPrices } from "./gradepage";
+import { readProofSetPrices } from "./gradeproofs";
 import { generateSeries, getSeries } from "./series";
 import { CoinIssue, CoinPrice, CoinSeries, timeout } from "./utils";
 
@@ -120,6 +121,17 @@ exports.handler = async (event: any, context: any) => {
 
     // Wait a few seconds before going to the next series
     await timeout(event?.timeout || 2000);
+  }
+
+  // Should we grade proofs too?
+  if (event?.proofs) {
+      const result: CoinSeries = await readProofSetPrices();
+      if (result.issues.length) {
+        seriesInfo.push(result);
+      }
+
+      // Wait a few seconds before going to the next series
+      await timeout(event?.timeout || 2000);
   }
 
   // And save this to S3
