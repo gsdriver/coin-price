@@ -1,7 +1,3 @@
-/* tslint:disable-next-line */
-const config = require("dotenv").config();
-
-import * as logger from "./logger";
 import { CoinIssue, CoinPrice, CoinSeries, getPriceFiles } from "./utils";
 
 // If missing mintmark, then put on "p" for Philadelphia

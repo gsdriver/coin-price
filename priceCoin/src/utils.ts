@@ -59,7 +59,7 @@ const readFromS3 = async (key: string): Promise<string> => {
     value = await streamToString(Body);
   }
   catch (e) {
-    logger.info("Error reading from S3", { value });
+    logger.info("Error reading from S3", { value, error: (e as any)?.message });
   }
 
   return value;

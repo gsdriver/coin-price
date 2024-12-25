@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* tslint:disable-next-line */
 const config = require("dotenv").config();
 import * as logger from "./logger";
@@ -85,7 +87,7 @@ const priceOneCoin = async (
   return { price: price || "", price_as_of, explanation: explanation || "" };
 };
 
-exports.handler = async (event: any, context: any) => {
+exports.handler = async (event: any) => {
   // You need to supply a series, year, and grade at minimum
   logger.info("received event", { event });
 
