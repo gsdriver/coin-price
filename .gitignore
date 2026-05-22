@@ -14,6 +14,9 @@ dist
 .env*
 /.idea
 .serverless
+.claude
+.open-next
+iam-deploy-policy.json
 
 # debug
 npm-debug.log*
@@ -28,3 +31,6 @@ deploy.sh
 # files
 myprices.csv
 mycoins.csv
+
+# SST
+.sst/

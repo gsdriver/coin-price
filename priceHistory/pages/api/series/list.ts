@@ -9,14 +9,14 @@ interface Result {
   seriesList?: CoinSeries[];
 }
 
-// Let's read in all the files for a given date
-// From there, we'll create an array of all possible coin issues
-const SEEDDATE = new Date("2023-07-02");
+// Singleton client — shared across all requests in this server process
+const s3Client = new S3Client({ region: "us-west-2" });
+
+// In-memory cache — populated on first GET, invalidated on PUT
+let cachedSeriesList: CoinSeries[] | null = null;
 
 const readFromS3 = async (bucket: string, key: string): Promise<string> => {
   let value: any;
-  const region = "us-west-2";
-  const client = new S3Client({ region });
 
   try {
     const streamToString = (stream: any) =>
@@ -32,10 +32,11 @@ const readFromS3 = async (bucket: string, key: string): Promise<string> => {
       Key: key,
     });
 
-    const { Body } = await client.send(command);
+    const { Body } = await s3Client.send(command);
     value = await streamToString(Body);
   } catch (e) {
-    logger.info("Error reading from S3", { key });
+    logger.info("Error reading from S3", { e, key });
+    logger.error((e as any)?.message, `Problem reading from S3 key ${key}`);
   }
 
   return value;
@@ -48,7 +49,6 @@ const readSeries = async (key: string): Promise<CoinSeries> => {
   try {
     const value: string = await readFromS3(process.env.S3_BUCKET!, key);
 
-    // Now let's read each line and add it to the list
     const lines = value.split("\n");
     lines.forEach((line: string) => {
       const issue = line.split(",");
@@ -69,17 +69,12 @@ const readSeries = async (key: string): Promise<CoinSeries> => {
 };
 
 const reloadPriceFiles = async(date: Date): Promise<CoinSeries[]> => {
-  // Loop thru to read in all keys
   let seriesList: CoinSeries[] = [];
   let keyList: string[] = [];
   let i: number;
 
   try {
     let data: any;
-
-    const client: any = new S3Client({
-      region: "us-west-2",
-    });
 
     await (async function loop(firstRun, token): Promise<any> {
       const params: any = {
@@ -93,7 +88,7 @@ const reloadPriceFiles = async(date: Date): Promise<CoinSeries[]> => {
         }
 
         const command = new ListObjectsV2Command(params);
-        data = await client.send(command);
+        data = await s3Client.send(command);
         keyList = keyList.concat(data.Contents.map((d: any) => d.Key));
         if (data.NextContinuationToken) {
           return loop(false, data.NextContinuationToken);
@@ -101,20 +96,17 @@ const reloadPriceFiles = async(date: Date): Promise<CoinSeries[]> => {
       }
     }(true, null));
 
-    // OK, now we need to read each one of these files
     for (i = 0; i < keyList.length; i++) {
       seriesList = seriesList.concat(await readSeries(keyList[i]));
     }
 
-    // And finally, write out a new file
     const command = new PutObjectCommand({
       Body: JSON.stringify({ date, seriesList }),
       Bucket: process.env.S3_CONFIG_BUCKET,
       Key: "coin-price-history/seriesList.json",
     });
-    await client.send(command);
+    await s3Client.send(command);
   } catch (e) {
-    // There's an error - clear the keylist and try again later
     logger.error((e as any)?.message, "Problem reading pricing files");
     keyList = [];
   }
@@ -122,10 +114,8 @@ const reloadPriceFiles = async(date: Date): Promise<CoinSeries[]> => {
   return seriesList;
 };
 
-const loadPriceFiles = async(date: Date): Promise<CoinSeries[]> => {
-  // Start by reading from the config file
+const loadPriceFiles = async(): Promise<CoinSeries[]> => {
   const value = await readFromS3(process.env.S3_CONFIG_BUCKET!, "coin-price-history/seriesList.json");
-
   return JSON.parse(value).seriesList;
 };
 
@@ -137,8 +127,10 @@ export default async (req: express.Request, res: express.Response) => {
       let result: Result = { statusCode: 500, errorCode: "INTERNALERROR" };
 
       try {
-        // Read in the full series please
-        result.seriesList = await loadPriceFiles(SEEDDATE);
+        if (!cachedSeriesList) {
+          cachedSeriesList = await loadPriceFiles();
+        }
+        result.seriesList = cachedSeriesList;
         result.statusCode = 200;
       } catch (e) {
         logger.error(e as Error, "Read series list returned error");
@@ -147,6 +139,9 @@ export default async (req: express.Request, res: express.Response) => {
       }
 
       res.statusCode = result.statusCode;
+      if (result.statusCode === 200) {
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+      }
       res.json({
         success: (result.statusCode === 200),
         errorCode: (result.statusCode === 200) ? undefined : result.errorCode,
@@ -155,11 +150,10 @@ export default async (req: express.Request, res: express.Response) => {
 
       return;
     } else if (req.method === "PUT") {
-      // Reload the series list
-      // Use the first day of the week before this one as a seed date
       const d: Date = new Date();
       d.setDate(d.getDate() - d.getDay() - 7);
 
+      cachedSeriesList = null; // invalidate so next GET re-fetches from S3
       await reloadPriceFiles(d);
       res.statusCode = 200;
       res.json({
@@ -172,7 +166,6 @@ export default async (req: express.Request, res: express.Response) => {
     logger.error((e as any)?.message);
   }
 
-  // Anything else is a failure
   res.statusCode = 400;
   res.end();
 };

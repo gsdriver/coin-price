@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import fetch from "node-fetch";
 import querystring from "querystring";
-import Image from "next/image";
 import { CoinIssue, CoinSeries } from "@/utils";
 import { PriceChart } from "@/components/PriceChart";
 
@@ -11,182 +10,172 @@ const NOVARIETY = "No variety";
 const grades: number[] = [1, 2, 3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70];
 
 const loadSeriesList = async (): Promise<CoinSeries[]> => {
-  let results: any;
-
   try {
     const resp: any = await fetch("/api/series/list", {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
     });
-
     const result = await resp.json();
-    if (result.success) {
-      results = result.seriesList;
-    } else {
-      results = [];
-    }
-  } catch (e) {
-    // Guess we can't find a series?
-    results = [];
+    return result.success ? result.seriesList : [];
+  } catch {
+    return [];
   }
-
-  return results;
 };
 
 const getCoinHistory = async (series: string, issue: string, grade: number, variety: string | undefined) => {
-  let results: any;
-
   try {
-    const resp: any = await fetch(`/api/history?${querystring.stringify({
-      series, issue, grade, variety,
-    })}`, {
+    const resp: any = await fetch(`/api/history?${querystring.stringify({ series, issue, grade, variety })}`, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
     });
-
     const result = await resp.json();
-    if (result.success) {
-      results = result.history;
-    } else {
-      results = [];
-    }
-  } catch (e) {
-    // Guess we can't find this coin?
-    results = [];
+    return result.success ? result.history : [];
+  } catch {
+    return [];
   }
-
-  return results;
 };
 
 export default function Home() {
   const [priceHistory, setPriceHistory] = useState<{price_as_of: string, grade: number, price: number}[]>();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSeriesLoading, setIsSeriesLoading] = useState(true);
   const [seriesList, setSeriesList] = useState<CoinSeries[]>([]);
   const [issueList, setIssueList] = useState<CoinIssue[]>([]);
   const [varietyList, setVarietyList] = useState<string[]>([]);
-  const [selectedSeries, setSelectedSeries] = useState<string | undefined>();
-  const [selectedIssue, setSelectedIssue] = useState<string | undefined>();
-  const [selectedVariety, setSelectedVariety] = useState<string | undefined>();
-  const [selectedGrade, setSelectedGrade] = useState<number | undefined>();
+  const [selectedSeries, setSelectedSeries] = useState<string>("");
+  const [selectedIssue, setSelectedIssue] = useState<string>("");
+  const [selectedVariety, setSelectedVariety] = useState<string>("");
+  const [selectedGrade, setSelectedGrade] = useState<string>("");
 
   useEffect(() => {
-    const initialize = async () => {
-      setSeriesList(await loadSeriesList());
-      setSelectedSeries(undefined);
-      setSelectedIssue(undefined);
-      setSelectedVariety(undefined);
-      setSelectedGrade(undefined);
-      setPriceHistory(undefined);
-    };
-
-    initialize();
+    loadSeriesList().then((list) => {
+      setSeriesList(list);
+      setIsSeriesLoading(false);
+    });
   }, []);
 
-  const setSeries = (event: any) => {
-    setSelectedSeries(event.target.value);
-    setSelectedIssue(undefined);
-    setSelectedVariety(undefined);
-    setSelectedGrade(undefined);
-    setPriceHistory(undefined);
+  useEffect(() => {
+    if (selectedSeries && selectedIssue && selectedVariety && selectedGrade) {
+      const v = selectedVariety === NOVARIETY ? undefined : selectedVariety;
+      setIsLoading(true);
+      getCoinHistory(selectedSeries, selectedIssue, Number(selectedGrade), v).then((history) => {
+        setPriceHistory(history);
+        setIsLoading(false);
+      });
+    } else {
+      setPriceHistory(undefined);
+    }
+  }, [selectedSeries, selectedIssue, selectedVariety, selectedGrade]);
 
-    setIssueList(seriesList
-      .find((series) => series.name === event.target.value)!.issues
-      .filter((issue, idx, arr) => arr.indexOf(issue) === idx));
+  const handleSeriesChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedSeries(value);
+    setSelectedIssue("");
+    setSelectedVariety("");
+    setSelectedGrade("");
     setVarietyList([]);
+    if (value) {
+      setIssueList(seriesList.find((s) => s.name === value)!.issues);
+    } else {
+      setIssueList([]);
+    }
   };
 
-  const setIssue = (event: any) => {
-    setSelectedIssue(event.target.value);
-    setSelectedGrade(undefined);
-    setPriceHistory(undefined);
-
-    const varities = issueList
-      .filter((issue) => issue.name === event.target.value)
-      .map((issue) => issue.variety || NOVARIETY)
-      .filter((variety, idx, arr) => arr.indexOf(variety) === idx);
-
-    setVarietyList(varities);
-    setSelectedVariety((varities.length === 1) ? varities[0] : undefined);
+  const handleIssueChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedIssue(value);
+    setSelectedGrade("");
+    if (value) {
+      const varieties = issueList
+        .filter((issue) => issue.name === value)
+        .map((issue) => issue.variety || NOVARIETY)
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+      setVarietyList(varieties);
+      setSelectedVariety(varieties.length === 1 ? varieties[0] : "");
+    } else {
+      setVarietyList([]);
+      setSelectedVariety("");
+    }
   };
 
-  const setVariety = (event: any) => {
-    setSelectedVariety(event.target.value);
-    setSelectedGrade(undefined);
-    setPriceHistory(undefined);
+  const handleVarietyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedVariety(e.target.value);
+    setSelectedGrade("");
   };
 
-  const setGrade = (event: any) => {
-    setSelectedGrade(event.target.value);
-    setPriceHistory(undefined);
-  }
-
-  const onClickButton = async () => {
-    const v: string | undefined = (selectedVariety === NOVARIETY) ? undefined : selectedVariety;
-
-    setPriceHistory(await getCoinHistory(selectedSeries!, selectedIssue!, selectedGrade!, v));
+  const handleGradeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedGrade(e.target.value);
   };
+
+  const showVarietySelect = !!selectedIssue && varietyList.length > 1;
+
+  const selectClass = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const labelClass = "block text-xs font-medium text-slate-500 uppercase tracking-wide mb-1";
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          <label htmlFor="series">Choose a coin series:</label>
-          <select name="series" id="series" value={selectedSeries} onChange={setSeries}>
-            {seriesList.map((series) => (
-              <option key={series.name} value={series.name}>{series.name}</option>
-            ))}
-          </select>
-        </p>
-        {!!selectedSeries && (
-          <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-            <label htmlFor="issue">Choose a coin issue:</label>
-            <select name="issue" id="issue" value={selectedIssue} onChange={setIssue}>
-              {issueList.map((issue) => (
-                <option key={issue.name} value={issue.name} selected={issue.name === selectedIssue}>{issue.name}</option>
-              ))}
-            </select>
-          </p>
-        )}
-        {!!selectedIssue && (varietyList?.length > 1) && (
-          <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-            <label htmlFor="variety">Choose a coin variety:</label>
-            <select name="variety" id="variety" value={selectedVariety} onChange={setVariety}>
-              {varietyList.map((variety) => (
-                <option key={variety} value={variety}>{variety}</option>
-              ))}
-            </select>
-          </p>
-        )}
-        {!!selectedVariety && (
-          <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-            <label htmlFor="variety">Choose a grade:</label>
-            <select name="grade" id="grade" value={selectedGrade} onChange={setGrade}>
-              {grades.map((grade) => (
-                <option key={grade} value={grade}>{grade}</option>
-              ))}
-            </select>
-          </p>
-        )}
-      </div>
+    <div className="min-h-screen bg-slate-100">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm">
+        <h1 className="text-lg font-semibold text-slate-800">Coin Price History</h1>
+      </header>
 
-      <PriceChart
-        priceHistory={priceHistory}
-        series={selectedSeries}
-        issue={selectedIssue}
-        variety={selectedVariety}
-        grade={selectedGrade}
-      />
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <div className={`grid gap-3 grid-cols-1 sm:grid-cols-2 ${showVarietySelect ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+            <div>
+              <label className={labelClass}>Series</label>
+              <select value={selectedSeries} onChange={handleSeriesChange} disabled={isSeriesLoading} className={selectClass}>
+                <option value="">{isSeriesLoading ? 'Loading…' : '— Select —'}</option>
+                {seriesList.map((s) => (
+                  <option key={s.name} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
 
-      <div className="mb-32 grid text-center lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full" 
-          disabled={!selectedSeries || !selectedIssue || !selectedVariety || !selectedGrade} 
-          onClick={onClickButton}>
-          Get Price History
-        </button>
-      </div>
-    </main>
-  )
+            <div>
+              <label className={labelClass}>Issue</label>
+              <select value={selectedIssue} onChange={handleIssueChange} disabled={!selectedSeries} className={selectClass}>
+                <option value="">— Select —</option>
+                {issueList
+                  .filter((issue, idx, arr) => arr.findIndex((i) => i.name === issue.name) === idx)
+                  .map((issue) => (
+                    <option key={issue.name} value={issue.name}>{issue.name}</option>
+                  ))}
+              </select>
+            </div>
+
+            {showVarietySelect && (
+              <div>
+                <label className={labelClass}>Variety</label>
+                <select value={selectedVariety} onChange={handleVarietyChange} disabled={!selectedIssue} className={selectClass}>
+                  <option value="">— Select —</option>
+                  {varietyList.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className={labelClass}>Grade</label>
+              <select value={selectedGrade} onChange={handleGradeChange} disabled={!selectedVariety} className={selectClass}>
+                <option value="">— Select —</option>
+                {grades.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <PriceChart
+          priceHistory={priceHistory}
+          isLoading={isLoading}
+          series={selectedSeries}
+          issue={selectedIssue}
+          variety={selectedVariety}
+          grade={selectedGrade ? Number(selectedGrade) : undefined}
+        />
+      </main>
+    </div>
+  );
 }
