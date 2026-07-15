@@ -47,10 +47,50 @@ export default function Home() {
   const [selectedVariety, setSelectedVariety] = useState<string>("");
   const [selectedGrade, setSelectedGrade] = useState<string>("");
 
+  // Applies series/issue/grade (and optionally variety) from the URL query string
+  // once the series list has been fetched from S3 - this is the "cold boot" case,
+  // since we can't validate/select anything until that list is available.
+  const applyQueryParams = (list: CoinSeries[]) => {
+    const params = new URLSearchParams(window.location.search);
+    const series = params.get("series");
+    const issue = params.get("issue");
+    const grade = params.get("grade");
+
+    if (!series || !issue || !grade) {
+      return;
+    }
+
+    const matchedSeries = list.find((s) => s.name === series);
+    const matchedIssue = matchedSeries?.issues.find((i) => i.name === issue);
+    if (!matchedSeries || !matchedIssue) {
+      return;
+    }
+
+    const varieties = matchedSeries.issues
+      .filter((i) => i.name === issue)
+      .map((i) => i.variety || NOVARIETY)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+
+    setSelectedSeries(series);
+    setIssueList(matchedSeries.issues);
+    setSelectedIssue(issue);
+    setVarietyList(varieties);
+
+    const queryVariety = params.get("variety");
+    if (queryVariety && varieties.includes(queryVariety)) {
+      setSelectedVariety(queryVariety);
+    } else if (varieties.length === 1) {
+      setSelectedVariety(varieties[0]);
+    }
+
+    setSelectedGrade(grade);
+  };
+
   useEffect(() => {
     loadSeriesList().then((list) => {
       setSeriesList(list);
       setIsSeriesLoading(false);
+      applyQueryParams(list);
     });
   }, []);
 
